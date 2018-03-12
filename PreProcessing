@@ -1,0 +1,117 @@
+rm(list = ls())
+
+#### Packages needed ###
+library(ShortRead)
+library(dplyr)
+library(tidyr)
+library(stringr)
+
+##### Importing dataset #####
+## NOTE: SELECT APPOPRIATE LOCATION AND FILE ##
+
+setwd("~/Desktop/Molecular Medicine/2nd year/Lab/Sequencing")
+raw.seq <- read.delim("~/Desktop/Molecular Medicine/2nd year/Lab/Sequencing/TDT_NALM_6_XLF_34.fastq", header=FALSE)
+raw.seq <- as.data.frame(raw.seq)
+
+################### 1. DATA PREP #########################
+## GOAL: MATCH SEQID with SEQUENCE AND QUALITY
+
+## Add a column for sorting ##
+sortID <- 1:4
+sortCol <- rep(sortID, length(raw.seq))
+seq.data <- cbind(sortCol, raw.seq)
+
+## Sorting sequence IDs ###
+seqID <- subset(seq.data, sortCol == 1)
+seqID <- as.vector(seqID$V1)  
+
+## Sorting sequence ###
+sequence <- subset(seq.data, sortCol == 2)
+sequence <- as.vector(sequence$V1)
+
+## Sorting quality ##
+quality <- subset(seq.data, sortCol == 4)
+quality <- as.vector(quality$V1)
+
+## Sorted dataset ##
+seq.data <- cbind(seqID, sequence, quality)
+seq.data <- as.data.frame(seq.data)
+
+### Save dataset for excel analysis (If desired) ###
+
+# write.csv (seq.data, "FILE_NAME.xlsx")
+
+################### 2. PRE-PROCESSING  #########################
+## A. QUALITY ASSESSMENT ##
+##    GOAL: SELECT SEQUENCES WITH ONLY "I" IN QUALITY VECTOR 
+
+# Find "I" in quality sequence
+x <- seq.data$quality
+findI <- lengths(regmatches(x, gregexpr("I", x)))
+
+# Find length of quality sequence and sequence #
+seq.data$quality <-as.character(seq.data$quality)
+seq.data$sequence <- as.character(seq.data$sequence)
+qualLength <- nchar(seq.data$quality)
+lengthSeq <- nchar(seq.data$sequence)
+
+# Quality criteria - qualDif = 0 AND lengthSeq - qualLength = 0
+
+qualDif <- qualLength - findI
+lengthDif <- lengthSeq - qualLength
+
+seq.data <- cbind(seq.data, qualDif, lengthDif)
+GoodQual <- subset(seq.data, lengthDif == 0)
+GoodQual <- subset(seq.data, qualDif == 0)
+
+############# 2.B. FIND JUNCTION ##################
+
+# Find sequence "GCCGGTCGCTACCATTACCAAC" #
+
+fseq <- c("GCCGGTCGCTACCATTACCAAC")
+fjuncseq <- str_detect(GoodQual$sequence, fseq)
+wJunction <- cbind(GoodQual, fjuncseq)
+wJunction <- subset(wJunction, fjuncseq == "TRUE")
+
+# Find sequence "CCCTAACGTTACTGGCCGAAGC" #
+
+lseq <- c("CCCTAACGTTACTGGCCGAAGC")
+ljuncseq <- str_detect(wJunction$sequence, lseq)
+wJunction <- cbind(wJunction, ljuncseq)
+wJunction <- subset(wJunction, ljuncseq == "TRUE")
+
+# Find trimmed sequence #
+# Note: this trimming does not include the fseq/lseq #
+
+Trimmed.Seq <- str_match(wJunction$sequence, "GCCGGTCGCTACCATTACCAAC(.*?)CCCTAACGTTACTGGCCGAAGC")
+Trimmed.Seq <- as.data.frame(Trimmed.Seq)
+colnames(Trimmed.Seq) <- c("Sequence", "Trimmed")
+
+# Dataset: good quality sequences, with junction, trimmed #
+
+Trimmed.Seq$Trimmed <- as.character(Trimmed.Seq$Trimmed)
+wJunction$seqID <- as.character(wJunction$seqID)
+Trimmed.dataset <- cbind(wJunction$seqID, wJunction$sequence, Trimmed.Seq$Trimmed)
+Trimmed.dataset <- as.data.frame(Trimmed.dataset)
+colnames(Trimmed.dataset) <- c("ID", "Sequence", "Trimmed.Seq")
+
+###### 2.C FIND 10-C's stretch #####
+
+tenC <- str_detect(Trimmed.dataset$Sequence, "CCCCCCCCCC")
+Stretch <- cbind(Trimmed.dataset, tenC)
+wStretch <- subset(Stretch, tenC == "TRUE")
+
+elevenC <- str_detect(wStretch$Sequence, "CCCCCCCCCCC")
+wStretch <- cbind(wStretch, elevenC)
+wStretch <- subset(wStretch, elevenC == "FALSE")
+
+##### Remove duplicate sequences ####
+
+UniqueSequences <- wStretch[!duplicated(wStretch$Sequence), ]
+
+write.csv (UniqueSequences, "JAnalysis_Imput_XLF_35.xls")
+
+#### THIS FILE IS READY TO BE INSERTED INTO JUNCTION ANALYSIS TAB (EXCEL TEMPLATE) ###
+
+
+
